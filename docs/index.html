@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Estacionamento SMAMUS 3D</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      background-color: #f0f2f5;
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
+      border-radius: 8px;
+      color: white;
+      max-width: 300px;
+    }
+    #ui button {
+      margin: 5px 0;
+      padding: 6px 12px;
+      background: #3CB371;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      width: 100%;
+      font-size: 14px;
+    }
+    #ui button:hover {
+      background: #2e8b57;
+    }
+    #contador {
+      margin-top: 10px;
+      font-weight: bold;
+      text-align: center;
+    }
+  </style>
+
+  <!-- Babylon.js -->
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+</head>
+<body>
+  <div id="ui">
+    <button onclick="ativarAdmin()">Modo Administrador</button>
+    <button onclick="desativarAdmin()">Modo Usuário</button>
+    <button onclick="toggleMover()">Mover/Rotacionar</button>
+    <button onclick="ativarDelete()">Apagar Vaga</button>
+    <div id="contador">Total: 0 | Ocupadas: 0 | Livres: 0</div>
+  </div>
+  <canvas id="renderCanvas"></canvas>
+
+  <script>
+    // 🔥 Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDvgoGXBnFZbXi28SuSnQlx8mIN6Ebsflk",
+      authDomain: "estacionamentosmamus.firebaseapp.com",
+      databaseURL: "https://estacionamentosmamus-default-rtdb.firebaseio.com",
+      projectId: "estacionamentosmamus",
+      storageBucket: "estacionamentosmamus.appspot.com",
+      messagingSenderId: "864410096092",
+      appId: "1:864410096092:web:c8f039da393d4130bb7f19",
+    };
+    firebase.initializeApp(firebaseConfig);
+    const vagasRef = firebase.database().ref('vagas');
+
+    // 🎮 Babylon setup
+    const canvas = document.getElementById("renderCanvas");
+    const engine = new BABYLON.Engine(canvas, true);
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.95, 0.96, 0.98, 1);
+
+    const camera = new BABYLON.ArcRotateCamera("camera", Math.PI / 2, Math.PI / 2.5, 15, BABYLON.Vector3.Zero(), scene);
+    camera.attachControl(canvas, true);
+    const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+    // 🔧 Variáveis
+    let isAdminMode = false;
+    let isMoveMode = false;
+    let selectedAction = null;
+    let vagas = [];
+
+    // 📦 Carregar modelo 3D
+    BABYLON.SceneLoader.Append("https://linckrafael.github.io/SMAMUS3Dv6.0/", "modelo.glb", scene, function () {
+      console.log("Modelo carregado");
+
+      // 🔁 Escutar Firebase
+      vagasRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        vagas = data ? Object.keys(data).map(key => ({ id: key, ...data[key] })) : [];
+        renderizarVagas();
+        atualizarContador();
+      });
+    });
+
+    // 🧱 Renderizar vagas como planos 3D
+    function renderizarVagas() {
+      scene.meshes.filter(m => m.name.startsWith("V")).forEach(m => m.dispose());
+
+      vagas.forEach(v => {
+        const vaga = BABYLON.MeshBuilder.CreatePlane(v.id, { width: 0.5, height: 0.25 }, scene);
+        vaga.name = v.id;
+        vaga.position = new BABYLON.Vector3(v.left / 10 - 5, 0.05, v.top / 10 - 5);
+        vaga.rotation = new BABYLON.Vector3(Math.PI / 2, BABYLON.Tools.ToRadians(v.rotate), 0);
+
+        const mat = new BABYLON.StandardMaterial("mat_" + v.id, scene);
+        if (v.ocupada) {
+          mat.diffuseColor = (v.id === 'V15' || v.id === 'V16') ? BABYLON.Color3.Gray() : BABYLON.Color3.Red();
+        } else {
+          mat.diffuseColor = (v.id === 'V15' || v.id === 'V16') ? BABYLON.Color3.Blue() : BABYLON.Color3.Green();
+        }
+        vaga.material = mat;
+
+        vaga.actionManager = new BABYLON.ActionManager(scene);
+        vaga.actionManager.registerAction(new BABYLON.ExecuteCodeAction(BABYLON.ActionManager.OnPickTrigger, function () {
+          if (isAdminMode) {
+            if (selectedAction === 'delete') {
+              vagasRef.child(v.id).remove();
+              selectedAction = null;
+            } else {
+              vagasRef.child(v.id).update({ ocupada: !v.ocupada });
+            }
+          }
+        }));
+      });
+    }
+
+    // 📊 Atualizar contador
+    function atualizarContador() {
+      const total = vagas.length;
+      const ocupadas = vagas.filter(v => v.ocupada).length;
+      document.getElementById("contador").innerText = `Total: ${total} | Ocupadas: ${ocupadas} | Livres: ${total - ocupadas}`;
+    }
+
+    // 🧭 Botões
+    function ativarAdmin() {
+      isAdminMode = true;
+      selectedAction = null;
+      alert("Modo Administrador ativado");
+    }
+    function desativarAdmin() {
+      isAdminMode = false;
+      isMoveMode = false;
+      selectedAction = null;
+      alert("Modo Usuário ativado");
+    }
+    function toggleMover() {
+      if (!isAdminMode) return alert("Ative o modo administrador primeiro");
+      isMoveMode = !isMoveMode;
+      selectedAction = null;
+      alert(isMoveMode ? "Modo mover/rotacionar ativado (Segure SHIFT para rotacionar)" : "Modo mover/rotacionar desativado");
+    }
+    function ativarDelete() {
+      if (!isAdminMode) return alert("Ative o modo administrador primeiro");
+      selectedAction = 'delete';
+      isMoveMode = false;
+      alert("Clique em uma vaga para apagar");
+    }
+
+    // 🖱️ Drag global
+    let draggingVaga = null;
+    let dragStartX = 0;
+    let dragStartY = 0;
+
+    canvas.addEventListener('pointerdown', (e) => {
+      const pickResult = scene.pick(e.clientX, e.clientY);
+      if (pickResult.hit && pickResult.pickedMesh.name.startsWith("V")) {
+        draggingVaga = pickResult.pickedMesh;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+      }
+    });
+
+    canvas.addEventListener('pointerup', () => {
+      draggingVaga = null;
+    });
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (!draggingVaga || !isAdminMode || !isMoveMode) return;
+
+      const deltaX = e.clientX - dragStartX;
+      const deltaY = e.clientY - dragStartY;
+      const id = draggingVaga.name;
+      const vagaData = vagas.find(v => v.id === id);
+      if (!vagaData) return;
+
+      if (e.shiftKey) {
+        const newRot = vagaData.rotate + deltaX
+                const newRot = vagaData.rotate + deltaX * 0.1;
+        vagasRef.child(id).update({ rotate: newRot });
+      } else {
+        const newLeft = Math.min(Math.max(vagaData.left + deltaX * 0.05, 0), 100);
+        const newTop = Math.min(Math.max(vagaData.top - deltaY * 0.05, 0), 100);
+        vagasRef.child(id).update({ top: newTop, left: newLeft });
+      }
+
+      dragStartX = e.clientX;
+      dragStartY = e.clientY;
+    });
+
+    // 🎬 Render loop
+    engine.runRenderLoop(() => scene.render());
+    window.addEventListener("resize", () => engine.resize());
+  </script>
+</body>
+</html>
