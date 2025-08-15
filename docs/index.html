@@ -201,17 +201,17 @@
       const vagaData = vagas.find(v => v.id === id);
       if (!vagaData) return;
 
-if (e.shiftKey) {
-  let rotacaoAtual = vagaData.rotate || 0;
-  rotacaoAtual += deltaX * 0.1;
-  vagasRef.child(id).update({ rotate: rotacaoAtual });
-} else {
-  let leftAtual = vagaData.left || 0;
-  let topAtual = vagaData.top || 0;
-  leftAtual = Math.min(Math.max(leftAtual + deltaX * 0.05, 0), 100);
-  topAtual = Math.min(Math.max(topAtual - deltaY * 0.05, 0), 100);
-  vagasRef.child(id).update({ top: topAtual, left: leftAtual });
-}
+    if (e.shiftKey) {
+      let rotacaoAtual = vagaData.rotate || 0;
+      rotacaoAtual += deltaX * 0.1;
+      vagasRef.child(id).update({ rotate: rotacaoAtual });
+    } else {
+      let leftAtual = vagaData.left || 0;
+      let topAtual = vagaData.top || 0;
+      leftAtual = Math.min(Math.max(leftAtual + deltaX * 0.05, 0), 100);
+      topAtual = Math.min(Math.max(topAtual - deltaY * 0.05, 0), 100);
+      vagasRef.child(id).update({ top: topAtual, left: leftAtual });
+    }
 
 
       dragStartX = e.clientX;
